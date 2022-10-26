@@ -1,8 +1,10 @@
 use clap::Parser;
-use plist::{Dictionary, Value};
 use std::fmt::Error;
+use std::fs::read_to_string;
 use std::path::PathBuf;
+use std::str;
 use glob::glob;
+use roxmltree::Document;
 
 mod utils;
 
@@ -20,46 +22,32 @@ fn main() {
 
 }
 
-/// Loads the session.plist file from the given file_path
-fn load_session(file_path: &PathBuf) -> Result<Dictionary, Box<dyn std::error::Error>> {
-    let session = Value::from_file(file_path)?;
-
-    // Convert session to dict and return with ownership
-    let session = session
-        .as_dictionary()
-        .ok_or(Error)?
-        .to_owned();
-
-    Ok(session)
-}
 
 /// iterate over the extracted notes and find
 fn iterate_extracted_notes() -> Result<(), Box<dyn std::error::Error>>{
     for note in glob("data/note/*")? {
         let mut note = note?;
         note.push("Session.plist");
-        let session = load_session(&note)?;
-        process_session(session)
-            .ok_or(Error)?;
+        let session = load_xml_file(&note)?;
+        //process_xml(session)
+        //    .ok_or(Error)?;
     }
 
     Ok(())
 }
 
-fn process_session(session: Dictionary) -> Option<()>{
-    let curve_points = session
-        .get("$objects")?
-        .as_array()?;
-
-    let curve_points = curve_points
-        .get(51)?
-        .as_dictionary()?
-        .get("curvespoints")?;
-
-    let curve_points = curve_points.as_data()?;
+/// Loads the session.plist file from the given file_path
+fn load_xml_file(file_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    let xml = read_to_string(file_path)?;
+    let xml = Document::parse(&xml[..])?;
+    let root = xml.root_element();
+    dbg!(xml);
+    Ok(())
+}
 
 
-    Some(())
+fn process_xml() {
+
 }
 
 
@@ -67,9 +55,9 @@ fn process_session(session: Dictionary) -> Option<()>{
 mod test {
     use super::*;
     #[test]
-    fn test_load_session() {
-        let file_path = PathBuf::from("data/note/Note 5. Aug 2022/Session.plist");
-        let session = load_session(&file_path)
+    fn test_load_xml_file() {
+        let file_path = PathBuf::from("data/note/Note 5. Aug 2022/Session.xml");
+        let session = load_xml_file(&file_path)
             .expect("Could not load session");
     }
 
