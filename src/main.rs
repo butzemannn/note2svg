@@ -1,10 +1,10 @@
 use clap::Parser;
 use std::fmt::Error;
-use std::fs::read_to_string;
-use std::path::PathBuf;
-use std::str;
+use std::path::{Path, PathBuf};
 use glob::glob;
-use xmltree::Element;
+use itertools::Itertools;
+use plist::Value;
+use byteorder::{ByteOrder, LittleEndian};
 
 mod utils;
 
@@ -30,67 +30,73 @@ fn iterate_extracted_notes() -> Result<(), Box<dyn std::error::Error>>{
         note.push("Session.plist");
 
         // load and process curve points
-        let points = load_xml_file(&note)?;
+        let points = load_points(&note)
+            .ok_or(Error)?;
+
         let points_processed = process_points(points)?;
     }
-
     Ok(())
 }
 
-/// Loads the session.plist file from the given file_path
-/// :returns: String containing the curvepoints
-fn load_xml_file(file_path: &PathBuf) -> Result<(String), Box<dyn std::error::Error>> {
-    let xml = read_to_string(file_path)?;
-    let xml: &str = &xml[..];
-    let mut elm = Element::parse(xml.as_bytes()).unwrap();
-    //elm = elm.children[0];
-    // TODO: search for elements instead of hardcoding
-    let elm = elm.children[0].as_element().unwrap();
-    let elm = elm.children[7].as_element().unwrap();
-    let elm = elm.children[51].as_element().unwrap();
-    let elm = elm.children[9].as_element().unwrap();
-    let text = elm.children[0].as_text().unwrap();
+/// Loads the session.plist file from the given path
+/// :returns: Vec<8> containing the curve points
 
-    // clean text
-    let text = text.replace("\n", "");
-    let text = text.replace("\t", "");
+fn load_points(path: &Path) -> Option<Vec<u8>> {
+    let file = Value::from_file(&path).ok()?;
+    let file = file.as_dictionary()?;
 
-    Ok((text))
+    let points = file
+        .get("$objects")?
+        .as_array()?
+        .get(51)?
+        .as_dictionary()?
+        .get("curvespoints")?
+        .as_data()?;
+
+    Some(points.to_owned())
 }
 
 
-fn process_points(points: String) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Decode with base64
-    let points_dec = base64::decode(points)?;
-
-    Ok((points_dec))
+/// Process points by generating float values
+fn process_points(points: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    for chunk in &points.into_iter().chunks(4) {
+        let mut buffer: [u8; 4] = [0; 4];
+        // Convert to float with little endianness
+        for (i, byte) in chunk.into_iter().enumerate() {
+            buffer[i] = byte;
+        }
+        let number = LittleEndian::read_f32(&buffer);
+        dbg!(buffer);
+    }
+    Ok(())
 }
 
 
 #[cfg(test)]
 mod test {
-    use clap::error::ContextValue::String;
     use super::*;
 
     #[test]
-    fn test_process_points() {
-        //let points = "q9b8QpLeqEKQ7vtCh76nQjeeAEN1o6JCVREDQ0dhnEItFwRDUcSZQn0MBUOC7ZZCIsIFQ2lilEKgbQZDtPuRQoOwBkNoso9CVckGQ9MUjkKe6wZDlNmLQklQBkO29opCIsIFQ45li0J49gRDXASMQrs+BEO1yo9CicQDQ6QklUJobQNDa/WYQiAtA0PAtZ1CsDwDQ/kcokI5WQND";
-        let points = "q9b8QpLe";
-        let points_processed = process_points(points.to_string()).unwrap();
-        dbg!(points_processed);
-    }
-
-    #[test]
-    fn test_load_xml_file() {
-        let file_path = PathBuf::from("data/note/Note 5. Aug 2022/Session.xml");
-        let session = load_xml_file(&file_path)
-            .expect("Could not load session");
+    fn test_load_points() {
+        let path = PathBuf::from(r"data/note/Note 5. Aug 2022/Session.plist");
+        let points = load_points(&path).unwrap();
     }
 
     #[test]
     fn test_iterate_extracted_notes() {
         iterate_extracted_notes()
             .expect("Could not iterate over notes.");
+    }
+
+    #[test]
+    fn test_process_points() {
+        let mut points: Vec<u8> = Vec::new();
+        points.push(217);
+        points.push(99);
+        points.push(44);
+        points.push(1);
+
+        process_points(points).unwrap();
     }
 
 
